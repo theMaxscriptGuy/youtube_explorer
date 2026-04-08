@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YouTube Explorer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script
+      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+      crossorigin
+    ></script>
+    <script
+      src="https://unpkg.com/@mui/material@5/umd/material-ui.development.js"
+      crossorigin
+    ></script>
+    <script src="https://unpkg.com/@emotion/react@11/dist/emotion-react.umd.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@emotion/styled@11/dist/emotion-styled.umd.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg-start: #f7f1e8;
+        --bg-end: #dce7f2;
+        --panel: rgba(255, 251, 245, 0.8);
+        --panel-strong: rgba(255, 255, 255, 0.92);
+        --border: rgba(38, 53, 74, 0.16);
+        --text-main: #102033;
+        --text-muted: #566579;
+        --accent: #cb5f31;
+        --accent-dark: #8c3819;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", sans-serif;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at top left, rgba(255, 180, 94, 0.45), transparent 32%),
+          radial-gradient(circle at bottom right, rgba(48, 101, 142, 0.25), transparent 24%),
+          linear-gradient(135deg, var(--bg-start), var(--bg-end));
+        color: var(--text-main);
+      }
+
+      #root {
+        min-height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const {
+        Alert,
+        Box,
+        Button,
+        CircularProgress,
+        Chip,
+        Container,
+        CssBaseline,
+        Divider,
+        FormHelperText,
+        Paper,
+        Stack,
+        TextField,
+        ToggleButton,
+        ToggleButtonGroup,
+        Typography,
+        createTheme,
+        ThemeProvider,
+      } = MaterialUI;
+
+      const theme = createTheme({
+        palette: {
+          primary: {
+            main: "#cb5f31",
+            dark: "#8c3819",
+          },
+          background: {
+            default: "#f7f1e8",
+            paper: "rgba(255, 255, 255, 0.90)",
+          },
+          text: {
+            primary: "#102033",
+            secondary: "#566579",
+          },
+        },
+        shape: {
+          borderRadius: 20,
+        },
+        typography: {
+          fontFamily: '"Space Grotesk", sans-serif',
+          h3: {
+            fontWeight: 700,
+            letterSpacing: "-0.04em",
+          },
+          h6: {
+            fontWeight: 700,
+          },
+          button: {
+            fontWeight: 700,
+            textTransform: "none",
+          },
+        },
+      });
+
+      function extractYouTubeVideoId(url) {
+        if (!url) {
+          return "";
+        }
+
+        try {
+          const parsed = new URL(url);
+          const hostname = parsed.hostname.replace("www.", "");
+
+          if (hostname === "youtu.be") {
+            return parsed.pathname.slice(1);
+          }
+
+          if (hostname === "youtube.com" || hostname === "m.youtube.com") {
+            if (parsed.pathname === "/watch") {
+              return parsed.searchParams.get("v") || "";
+            }
+
+            if (parsed.pathname.startsWith("/embed/") || parsed.pathname.startsWith("/shorts/")) {
+              return parsed.pathname.split("/")[2] || "";
+            }
+          }
+        } catch (error) {
+          return "";
+        }
+
+        return "";
+      }
+
+      function App() {
+        const [openAiKey, setOpenAiKey] = React.useState("");
+        const [mode, setMode] = React.useState("youtube");
+        const [youtubeUrl, setYoutubeUrl] = React.useState("");
+        const [videoId, setVideoId] = React.useState("");
+        const [urlError, setUrlError] = React.useState("");
+        const [chatPrompt, setChatPrompt] = React.useState("");
+        const [videoPrompt, setVideoPrompt] = React.useState("");
+        const [responseText, setResponseText] = React.useState("");
+        const [toolResults, setToolResults] = React.useState([]);
+        const [requestError, setRequestError] = React.useState("");
+        const [isLoading, setIsLoading] = React.useState(false);
+
+        const handleModeChange = (_event, nextMode) => {
+          if (nextMode) {
+            setMode(nextMode);
+            setRequestError("");
+          }
+        };
+
+        const loadVideo = () => {
+          const nextVideoId = extractYouTubeVideoId(youtubeUrl.trim());
+          if (!nextVideoId) {
+            setVideoId("");
+            setUrlError("Enter a valid YouTube watch, short, share, or embed URL.");
+            return;
+          }
+
+          setVideoId(nextVideoId);
+          setUrlError("");
+        };
+
+        const onYoutubeKeyDown = (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            loadVideo();
+          }
+        };
+
+        const runExplorer = async () => {
+          const apiKey = openAiKey.trim();
+          if (!apiKey) {
+            setRequestError("Enter your OpenAI API key before running the explorer.");
+            return;
+          }
+
+          let query = "";
+
+          if (mode === "youtube") {
+            const nextVideoId = extractYouTubeVideoId(youtubeUrl.trim());
+            if (!nextVideoId) {
+              setUrlError("Enter a valid YouTube watch, short, share, or embed URL.");
+              setRequestError("Add a valid YouTube URL before running the explorer.");
+              return;
+            }
+
+            setVideoId(nextVideoId);
+            setUrlError("");
+            const prompt = videoPrompt.trim() || "Summarize this YouTube video in English.";
+            query = `${youtubeUrl.trim()}\n\n${prompt}`;
+          } else {
+            query = chatPrompt.trim();
+            if (!query) {
+              setRequestError("Enter a chat prompt before running the explorer.");
+              return;
+            }
+          }
+
+          setIsLoading(true);
+          setRequestError("");
+
+          try {
+            const response = await fetch("/api/query", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                apiKey,
+                query,
+              }),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+              throw new Error(data.error || "The explorer request failed.");
+            }
+
+            setResponseText(data.answer || "");
+            setToolResults(Array.isArray(data.toolCalls) ? data.toolCalls : []);
+          } catch (error) {
+            setResponseText("");
+            setToolResults([]);
+            setRequestError(error.message || "The explorer request failed.");
+          } finally {
+            setIsLoading(false);
+          }
+        };
+
+        return (
+          <ThemeProvider theme={theme}>
+            <CssBaseline />
+            <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
+              <Paper
+                elevation={0}
+                sx={{
+                  overflow: "hidden",
+                  border: "1px solid rgba(38, 53, 74, 0.12)",
+                  background: "rgba(255, 251, 245, 0.74)",
+                  backdropFilter: "blur(14px)",
+                }}
+              >
+                <Stack
+                  direction={{ xs: "column", md: "row" }}
+                  sx={{ minHeight: { md: "78vh" } }}
+                >
+                  <Box
+                    sx={{
+                      flex: 1,
+                      p: { xs: 3, md: 5 },
+                      background:
+                        "linear-gradient(180deg, rgba(255,255,255,0.45), rgba(255,255,255,0.12))",
+                      borderRight: { md: "1px solid rgba(38, 53, 74, 0.1)" },
+                    }}
+                  >
+                    <Stack spacing={3}>
+                      <Stack spacing={1.5}>
+                        <Chip
+                          label="YouTube Explorer"
+                          color="primary"
+                          sx={{ alignSelf: "flex-start", fontWeight: 700 }}
+                        />
+                        <Typography variant="h3">
+                          Explore videos or switch to chat from one focused workspace.
+                        </Typography>
+                        <Typography variant="body1" color="text.secondary">
+                          Add your OpenAI API key, choose how you want to interact, and load a
+                          YouTube video directly into the app when you have a link ready.
+                        </Typography>
+                      </Stack>
+
+                      <TextField
+                        fullWidth
+                        label="OpenAI API Key"
+                        type="password"
+                        value={openAiKey}
+                        onChange={(event) => setOpenAiKey(event.target.value)}
+                        placeholder="sk-..."
+                        helperText="Stored only in the page state for now."
+                      />
+
+                      <Box>
+                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                          Input mode
+                        </Typography>
+                        <ToggleButtonGroup
+                          color="primary"
+                          exclusive
+                          value={mode}
+                          onChange={handleModeChange}
+                          fullWidth
+                        >
+                          <ToggleButton value="youtube">YouTube URL</ToggleButton>
+                          <ToggleButton value="chat">Chat</ToggleButton>
+                        </ToggleButtonGroup>
+                      </Box>
+
+                      {mode === "youtube" ? (
+                        <Stack spacing={1.5}>
+                          <TextField
+                            fullWidth
+                            label="YouTube URL"
+                            value={youtubeUrl}
+                            onChange={(event) => setYoutubeUrl(event.target.value)}
+                            onKeyDown={onYoutubeKeyDown}
+                            placeholder="https://www.youtube.com/watch?v=..."
+                            error={Boolean(urlError)}
+                          />
+                          {urlError ? <FormHelperText error>{urlError}</FormHelperText> : null}
+                          <Button variant="contained" size="large" onClick={loadVideo}>
+                            Load Video
+                          </Button>
+                          <TextField
+                            fullWidth
+                            multiline
+                            minRows={4}
+                            label="Video Prompt"
+                            value={videoPrompt}
+                            onChange={(event) => setVideoPrompt(event.target.value)}
+                            placeholder="Summarize the video, list chapters, fetch metadata, or ask for thumbnails."
+                          />
+                          <Button
+                            variant="outlined"
+                            size="large"
+                            onClick={runExplorer}
+                            disabled={isLoading}
+                          >
+                            {isLoading ? "Running Explorer..." : "Analyze Video"}
+                          </Button>
+                        </Stack>
+                      ) : (
+                        <Stack spacing={1.5}>
+                          <TextField
+                            fullWidth
+                            multiline
+                            minRows={5}
+                            label="Chat Prompt"
+                            value={chatPrompt}
+                            onChange={(event) => setChatPrompt(event.target.value)}
+                            placeholder="Ask about a video summary, timestamps, or content ideas."
+                          />
+                          <Button
+                            variant="contained"
+                            size="large"
+                            onClick={runExplorer}
+                            disabled={isLoading}
+                          >
+                            {isLoading ? "Running Explorer..." : "Run Chat"}
+                          </Button>
+                          <Alert severity="info">
+                            Chat mode sends your prompt into the same Python tool-calling chain as
+                            the YouTube workflow.
+                          </Alert>
+                        </Stack>
+                      )}
+                    </Stack>
+                  </Box>
+
+                  <Box
+                    sx={{
+                      flex: 1,
+                      p: { xs: 3, md: 5 },
+                      display: "flex",
+                      alignItems: "stretch",
+                      background:
+                        "linear-gradient(180deg, rgba(16,32,51,0.04), rgba(16,32,51,0.08))",
+                    }}
+                  >
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        width: "100%",
+                        p: { xs: 2, md: 3 },
+                        borderRadius: 5,
+                        border: "1px solid rgba(38, 53, 74, 0.12)",
+                        background: "rgba(255,255,255,0.82)",
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "center",
+                        gap: 2,
+                      }}
+                    >
+                      <Typography variant="h6">
+                        {mode === "youtube" ? "Video Preview" : "Chat Workspace"}
+                      </Typography>
+
+                      {mode === "youtube" && videoId ? (
+                        <Box
+                          sx={{
+                            position: "relative",
+                            width: "100%",
+                            pt: "56.25%",
+                            overflow: "hidden",
+                            borderRadius: 4,
+                            boxShadow: "0 24px 60px rgba(16, 32, 51, 0.18)",
+                          }}
+                        >
+                          <iframe
+                            title="YouTube video player"
+                            src={`https://www.youtube.com/embed/${videoId}`}
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowFullScreen
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              width: "100%",
+                              height: "100%",
+                              border: "none",
+                            }}
+                          />
+                        </Box>
+                      ) : null}
+
+                      {mode === "youtube" && !videoId ? (
+                        <Box
+                          sx={{
+                            borderRadius: 4,
+                            border: "1px dashed rgba(38, 53, 74, 0.25)",
+                            minHeight: 280,
+                            display: "grid",
+                            placeItems: "center",
+                            px: 3,
+                            textAlign: "center",
+                            background:
+                              "linear-gradient(135deg, rgba(203,95,49,0.08), rgba(48,101,142,0.08))",
+                          }}
+                        >
+                          <Stack spacing={1}>
+                            <Typography variant="h6">Video player will appear here</Typography>
+                            <Typography color="text.secondary">
+                              Paste a YouTube URL and choose Load Video to embed the video.
+                            </Typography>
+                          </Stack>
+                        </Box>
+                      ) : null}
+
+                      {mode === "chat" ? (
+                        <Box
+                          sx={{
+                            borderRadius: 4,
+                            border: "1px dashed rgba(38, 53, 74, 0.25)",
+                            minHeight: 280,
+                            display: "grid",
+                            placeItems: "center",
+                            px: 3,
+                            textAlign: "center",
+                            background:
+                              "linear-gradient(135deg, rgba(16,32,51,0.04), rgba(203,95,49,0.08))",
+                          }}
+                        >
+                          <Stack spacing={1}>
+                            <Typography variant="h6">Chat mode selected</Typography>
+                            <Typography color="text.secondary">
+                              This area is ready for a future responses panel tied to your OpenAI
+                              integration.
+                            </Typography>
+                          </Stack>
+                        </Box>
+                      ) : null}
+
+                      {isLoading ? (
+                        <Stack
+                          direction="row"
+                          spacing={1.5}
+                          alignItems="center"
+                          sx={{ color: "text.secondary" }}
+                        >
+                          <CircularProgress size={20} />
+                          <Typography>Running the LangChain workflow...</Typography>
+                        </Stack>
+                      ) : null}
+
+                      {requestError ? <Alert severity="error">{requestError}</Alert> : null}
+
+                      {responseText ? (
+                        <>
+                          <Divider />
+                          <Stack spacing={1.25}>
+                            <Typography variant="h6">Explorer Response</Typography>
+                            <Paper
+                              elevation={0}
+                              sx={{
+                                p: 2,
+                                borderRadius: 4,
+                                border: "1px solid rgba(38, 53, 74, 0.12)",
+                                background: "rgba(255,255,255,0.7)",
+                                whiteSpace: "pre-wrap",
+                              }}
+                            >
+                              <Typography>{responseText}</Typography>
+                            </Paper>
+                          </Stack>
+                        </>
+                      ) : null}
+
+                      {toolResults.length > 0 ? (
+                        <Stack spacing={1.25}>
+                          <Typography variant="h6">Tool Outputs</Typography>
+                          {toolResults.map((toolResult, index) => (
+                            <Paper
+                              key={`${toolResult.name}-${index}`}
+                              elevation={0}
+                              sx={{
+                                p: 2,
+                                borderRadius: 4,
+                                border: "1px solid rgba(38, 53, 74, 0.12)",
+                                background: "rgba(255,255,255,0.7)",
+                              }}
+                            >
+                              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                                {toolResult.name || "Tool"}
+                              </Typography>
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                                sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                              >
+                                {toolResult.content}
+                              </Typography>
+                            </Paper>
+                          ))}
+                        </Stack>
+                      ) : null}
+                    </Paper>
+                  </Box>
+                </Stack>
+              </Paper>
+            </Container>
+          </ThemeProvider>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>

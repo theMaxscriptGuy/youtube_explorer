@@ -1,0 +1,6 @@
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+pytube>=15.0.0
+yt-dlp>=2025.0.0
+youtube-transcript-api>=0.6.0
