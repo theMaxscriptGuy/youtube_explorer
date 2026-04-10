@@ -63,6 +63,10 @@
         Alert,
         Box,
         Button,
+        Card,
+        CardActionArea,
+        CardContent,
+        CardMedia,
         CircularProgress,
         Chip,
         Container,
@@ -142,6 +146,46 @@
         return "";
       }
 
+      function parseChatVideoSuggestions(toolResults) {
+        const suggestions = [];
+
+        toolResults.forEach((toolResult) => {
+          if (toolResult.name !== "search_youtube" || !toolResult.content) {
+            return;
+          }
+
+          try {
+            const parsed = JSON.parse(toolResult.content);
+            if (!Array.isArray(parsed)) {
+              return;
+            }
+
+            parsed.forEach((item) => {
+              if (!item || typeof item !== "object") {
+                return;
+              }
+
+              const videoId = item.video_id || extractYouTubeVideoId(item.url || "");
+              const url = item.url || (videoId ? `https://youtu.be/${videoId}` : "");
+              if (!videoId || !url) {
+                return;
+              }
+
+              suggestions.push({
+                title: item.title || "Untitled video",
+                videoId,
+                url,
+                thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+              });
+            });
+          } catch (error) {
+            return;
+          }
+        });
+
+        return suggestions;
+      }
+
       function App() {
         const [openAiKey, setOpenAiKey] = React.useState("");
         const [mode, setMode] = React.useState("youtube");
@@ -152,8 +196,33 @@
         const [videoPrompt, setVideoPrompt] = React.useState("");
         const [responseText, setResponseText] = React.useState("");
         const [toolResults, setToolResults] = React.useState([]);
+        const [visibleToolLogs, setVisibleToolLogs] = React.useState([]);
         const [requestError, setRequestError] = React.useState("");
         const [isLoading, setIsLoading] = React.useState(false);
+        const chatVideoSuggestions = React.useMemo(
+          () => parseChatVideoSuggestions(toolResults),
+          [toolResults]
+        );
+
+        React.useEffect(() => {
+          setVisibleToolLogs([]);
+
+          if (!toolResults.length) {
+            return undefined;
+          }
+
+          let index = 0;
+          const timer = window.setInterval(() => {
+            index += 1;
+            setVisibleToolLogs(toolResults.slice(0, index));
+
+            if (index >= toolResults.length) {
+              window.clearInterval(timer);
+            }
+          }, 350);
+
+          return () => window.clearInterval(timer);
+        }, [toolResults]);
 
         const handleModeChange = (_event, nextMode) => {
           if (nextMode) {
@@ -179,6 +248,14 @@
             event.preventDefault();
             loadVideo();
           }
+        };
+
+        const loadSuggestedVideo = (suggestion) => {
+          setMode("youtube");
+          setYoutubeUrl(suggestion.url);
+          setVideoId(suggestion.videoId);
+          setUrlError("");
+          setVideoPrompt(`Tell me about "${suggestion.title}".`);
         };
 
         const runExplorer = async () => {
@@ -212,6 +289,7 @@
 
           setIsLoading(true);
           setRequestError("");
+          setVisibleToolLogs([]);
 
           try {
             const response = await fetch("/api/query", {
@@ -367,6 +445,63 @@
                           </Alert>
                         </Stack>
                       )}
+
+                      {mode === "chat" && visibleToolLogs.length > 0 ? (
+                        <Stack spacing={1.25}>
+                          <Typography variant="h6">Tool Log</Typography>
+                          <Paper
+                            elevation={0}
+                            sx={{
+                              p: 1.25,
+                              borderRadius: 0,
+                              border: "1px solid rgba(38, 53, 74, 0.12)",
+                              background: "rgba(15, 24, 36, 0.92)",
+                              color: "#e8edf3",
+                              maxHeight: 280,
+                              overflowY: "auto",
+                            }}
+                          >
+                            <Stack spacing={1}>
+                              {visibleToolLogs.map((toolResult, index) => (
+                                <Box
+                                  key={`${toolResult.name}-${index}`}
+                                  sx={{
+                                    p: 1.25,
+                                    borderRadius: 0,
+                                    background: "rgba(255,255,255,0.06)",
+                                    border: "1px solid rgba(255,255,255,0.08)",
+                                    minWidth: 0,
+                                  }}
+                                >
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      display: "block",
+                                      mb: 0.75,
+                                      color: "#ffbf9f",
+                                      fontWeight: 700,
+                                      letterSpacing: "0.04em",
+                                    }}
+                                  >
+                                    {toolResult.name || "Tool"}
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      color: "#e8edf3",
+                                      whiteSpace: "pre-wrap",
+                                      overflowWrap: "anywhere",
+                                      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+                                    }}
+                                  >
+                                    {toolResult.content}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Stack>
+                          </Paper>
+                        </Stack>
+                      ) : null}
                     </Stack>
                   </Box>
 
@@ -376,6 +511,7 @@
                       p: { xs: 3, md: 5 },
                       display: "flex",
                       alignItems: "stretch",
+                      minWidth: 0,
                       background:
                         "linear-gradient(180deg, rgba(16,32,51,0.04), rgba(16,32,51,0.08))",
                     }}
@@ -385,13 +521,15 @@
                       sx={{
                         width: "100%",
                         p: { xs: 2, md: 3 },
-                        borderRadius: 5,
+                        borderRadius: 0,
                         border: "1px solid rgba(38, 53, 74, 0.12)",
                         background: "rgba(255,255,255,0.82)",
                         display: "flex",
                         flexDirection: "column",
-                        justifyContent: "center",
+                        justifyContent: "flex-start",
                         gap: 2,
+                        minWidth: 0,
+                        overflow: "hidden",
                       }}
                     >
                       <Typography variant="h6">
@@ -405,7 +543,7 @@
                             width: "100%",
                             pt: "56.25%",
                             overflow: "hidden",
-                            borderRadius: 4,
+                            borderRadius: 0,
                             boxShadow: "0 24px 60px rgba(16, 32, 51, 0.18)",
                           }}
                         >
@@ -428,7 +566,7 @@
                       {mode === "youtube" && !videoId ? (
                         <Box
                           sx={{
-                            borderRadius: 4,
+                            borderRadius: 0,
                             border: "1px dashed rgba(38, 53, 74, 0.25)",
                             minHeight: 280,
                             display: "grid",
@@ -451,7 +589,7 @@
                       {mode === "chat" ? (
                         <Box
                           sx={{
-                            borderRadius: 4,
+                            borderRadius: 0,
                             border: "1px dashed rgba(38, 53, 74, 0.25)",
                             minHeight: 280,
                             display: "grid",
@@ -470,6 +608,63 @@
                             </Typography>
                           </Stack>
                         </Box>
+                      ) : null}
+
+                      {mode === "chat" && chatVideoSuggestions.length > 0 ? (
+                        <Stack spacing={1.25}>
+                          <Typography variant="h6">Suggested Videos</Typography>
+                          {chatVideoSuggestions.map((suggestion) => (
+                            <Card
+                              key={suggestion.videoId}
+                              elevation={0}
+                              sx={{
+                                borderRadius: 0,
+                                overflow: "hidden",
+                                border: "1px solid rgba(38, 53, 74, 0.12)",
+                                background: "rgba(255,255,255,0.78)",
+                              }}
+                            >
+                              <CardActionArea onClick={() => loadSuggestedVideo(suggestion)}>
+                                <Stack direction={{ xs: "column", sm: "row" }}>
+                                  <CardMedia
+                                    component="img"
+                                    image={suggestion.thumbnail}
+                                    alt={suggestion.title}
+                                    sx={{
+                                      width: { xs: "100%", sm: 220 },
+                                      height: { xs: 160, sm: "auto" },
+                                      objectFit: "cover",
+                                    }}
+                                  />
+                                  <CardContent sx={{ flex: 1 }}>
+                                    <Stack spacing={1.25}>
+                                      <Typography
+                                        variant="subtitle1"
+                                        sx={{ fontWeight: 700, overflowWrap: "anywhere" }}
+                                      >
+                                        {suggestion.title}
+                                      </Typography>
+                                      <Typography variant="body2" color="text.secondary">
+                                        Click to load this video into the player.
+                                      </Typography>
+                                      <Box>
+                                        <Button
+                                          variant="text"
+                                          href={suggestion.url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          onClick={(event) => event.stopPropagation()}
+                                        >
+                                          Open on YouTube
+                                        </Button>
+                                      </Box>
+                                    </Stack>
+                                  </CardContent>
+                                </Stack>
+                              </CardActionArea>
+                            </Card>
+                          ))}
+                        </Stack>
                       ) : null}
 
                       {isLoading ? (
@@ -495,46 +690,21 @@
                               elevation={0}
                               sx={{
                                 p: 2,
-                                borderRadius: 4,
+                                borderRadius: 0,
                                 border: "1px solid rgba(38, 53, 74, 0.12)",
                                 background: "rgba(255,255,255,0.7)",
                                 whiteSpace: "pre-wrap",
+                                overflowWrap: "anywhere",
                               }}
                             >
-                              <Typography>{responseText}</Typography>
+                              <Typography sx={{ overflowWrap: "anywhere" }}>
+                                {responseText}
+                              </Typography>
                             </Paper>
                           </Stack>
                         </>
                       ) : null}
 
-                      {toolResults.length > 0 ? (
-                        <Stack spacing={1.25}>
-                          <Typography variant="h6">Tool Outputs</Typography>
-                          {toolResults.map((toolResult, index) => (
-                            <Paper
-                              key={`${toolResult.name}-${index}`}
-                              elevation={0}
-                              sx={{
-                                p: 2,
-                                borderRadius: 4,
-                                border: "1px solid rgba(38, 53, 74, 0.12)",
-                                background: "rgba(255,255,255,0.7)",
-                              }}
-                            >
-                              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                {toolResult.name || "Tool"}
-                              </Typography>
-                              <Typography
-                                variant="body2"
-                                color="text.secondary"
-                                sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
-                              >
-                                {toolResult.content}
-                              </Typography>
-                            </Paper>
-                          ))}
-                        </Stack>
-                      ) : null}
                     </Paper>
                   </Box>
                 </Stack>

@@ -159,12 +159,20 @@ def run_youtube_explorer_query(query: str, api_key: str) -> dict[str, Any]:
     chain = _build_chain(api_key=api_key)
     response = chain.invoke({"query": query})
     final_message = response[-1]
+    tool_call_name_by_id: dict[str, str] = {}
+
+    for message in response:
+        for tool_call in getattr(message, "tool_calls", []) or []:
+            tool_call_id = tool_call.get("id")
+            tool_name = tool_call.get("name", "")
+            if tool_call_id:
+                tool_call_name_by_id[tool_call_id] = tool_name
 
     return {
         "answer": getattr(final_message, "content", ""),
         "toolCalls": [
             {
-                "name": getattr(message, "name", ""),
+                "name": tool_call_name_by_id.get(getattr(message, "tool_call_id", ""), ""),
                 "content": getattr(message, "content", ""),
             }
             for message in response
